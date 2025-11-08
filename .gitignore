@@ -49,3 +49,17 @@ env.bak/
 
 # dotenv environment variables file
 .env
+
+# Node.js / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated audio files
+backend/static/audio/generated/
