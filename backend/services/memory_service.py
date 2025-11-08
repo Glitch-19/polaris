@@ -30,20 +30,64 @@ class MemoryService:
     LTM_THRESHOLD = 1.5  # Above this weight = Long-Term Memory (reinforced)
     FM_THRESHOLD = 0.3   # Below this confidence = Faded Memory
     
-    # Decay rates (per day)
-    STM_DECAY = 0.15     # Short-term memories fade faster
-    LTM_DECAY = 0.02     # Long-term memories persist
-    FM_DECAY = 0.25      # Faded memories disappear quickly
+    # Decay rates (per day) - simulating human forgetting
+    INSTANT_DECAY = 24.0   # Ultra-fast decay (time, weather, etc.) - forgotten in 1 hour
+    STM_DECAY = 0.25       # Short-term memories fade quickly (what you ate for breakfast)
+    LTM_DECAY = 0.01       # Long-term memories persist for lifetime (accidents, trauma, love)
+    FM_DECAY = 0.35        # Faded memories disappear very quickly
+    
+    # Temporary/contextual keywords (forgotten in minutes/hours)
+    TEMPORARY_KEYWORDS = [
+        'time', 'what time', "what's the time", 'clock', 'hour', 'minute',
+        'weather', "what's the weather", 'temperature', 'raining', 'sunny',
+        'right now', 'currently', 'at the moment', 'this second', 'this minute',
+        'online', 'offline', 'available', 'busy', 'free right now',
+        'where are you', 'what are you doing', 'doing right now'
+    ]
     
     # Emotional keywords for scoring
     EMOTION_KEYWORDS = {
-        'high': ['love', 'hate', 'amazing', 'terrible', 'died', 'born', 'married', 'divorced', 
-                 'funeral', 'celebration', 'tragedy', 'miracle', 'heartbroken', 'ecstatic', 
-                 'devastated', 'thrilled', 'terrified', 'passionate', 'mom', 'dad', 'family'],
-        'medium': ['like', 'dislike', 'happy', 'sad', 'angry', 'excited', 'worried', 'hope', 
-                   'fear', 'wish', 'dream', 'miss', 'remember', 'forget', 'friend', 'girlfriend',
-                   'boyfriend', 'birthday', 'anniversary'],
-        'low': ['okay', 'fine', 'alright', 'maybe', 'sometimes', 'usually', 'often']
+        'high': [
+            # Life-changing events
+            'accident', 'crash', 'hospital', 'surgery', 'died', 'death', 'funeral', 'cancer', 
+            'disease', 'illness', 'injury', 'hurt', 'pain', 'emergency',
+            # Major life events
+            'married', 'wedding', 'divorce', 'born', 'baby', 'pregnant', 'graduation', 
+            'promoted', 'fired', 'job', 'new job', 'moved', 'moving',
+            # Extreme emotions
+            'love', 'hate', 'devastated', 'heartbroken', 'betrayed', 'betrayal', 
+            'trauma', 'traumatic', 'terrified', 'scared', 'fear', 'nightmare',
+            # Family & relationships
+            'mom', 'dad', 'mother', 'father', 'parent', 'child', 'son', 'daughter',
+            'family', 'grandma', 'grandpa', 'brother', 'sister',
+            # Critical moments
+            'miracle', 'amazing', 'terrible', 'worst', 'best', 'ever', 'never forget',
+            'proposal', 'engaged', 'broke up', 'breakup', 'cheated', 'lost', 'found'
+        ],
+        'medium': [
+            # Moderate emotions
+            'happy', 'sad', 'angry', 'upset', 'excited', 'nervous', 'worried', 'anxious',
+            'stressed', 'relieved', 'proud', 'disappointed', 'frustrated', 'jealous',
+            # Relationships
+            'friend', 'girlfriend', 'boyfriend', 'partner', 'colleague', 'boss',
+            'date', 'dating', 'relationship', 'crush',
+            # Events
+            'birthday', 'anniversary', 'celebration', 'party', 'trip', 'vacation',
+            'exam', 'test', 'interview', 'meeting', 'project',
+            # Moderate life details
+            'like', 'dislike', 'enjoy', 'prefer', 'hope', 'wish', 'dream', 'plan',
+            'miss', 'remember', 'forget'
+        ],
+        'low': [
+            # Casual/mundane
+            'okay', 'fine', 'alright', 'good', 'nice', 'cool', 'sure', 'yeah',
+            'maybe', 'sometimes', 'usually', 'often', 'rarely', 'occasionally',
+            # Daily activities
+            'ate', 'eat', 'breakfast', 'lunch', 'dinner', 'food', 'coffee', 'tea',
+            'sleep', 'slept', 'woke', 'shower', 'walk', 'run', 'gym', 'exercise',
+            'watch', 'watched', 'movie', 'show', 'game', 'read', 'book',
+            'work', 'working', 'study', 'studying', 'homework'
+        ]
     }
     
     def __init__(self, db: Session):
@@ -83,6 +127,14 @@ class MemoryService:
         
         # Ensure minimum of 0.1 for any text
         return max(emotion_score, 0.1)
+    
+    def is_temporary_info(self, text: str) -> bool:
+        """
+        Check if the information is temporary/contextual (time, weather, current status)
+        These should be forgotten in minutes/hours
+        """
+        text_lower = text.lower()
+        return any(keyword in text_lower for keyword in self.TEMPORARY_KEYWORDS)
     
     def calculate_decay(self, memory: UserMemory) -> float:
         """
@@ -158,17 +210,34 @@ class MemoryService:
         """
         Create a new memory with emotional analysis
         """
+        # Check if this is temporary/contextual information (time, weather, etc.)
+        is_temporary = self.is_temporary_info(text_context or memory_value or memory_key)
+        
         # Calculate emotion score from context
         emotion_score = self.calculate_emotion_score(text_context or memory_value)
         
-        # Initial weight based on emotion (emotional memories start stronger)
-        initial_weight = 0.5 + (emotion_score * 0.5)
-        
-        # Determine initial layer
-        layer = "LTM" if emotion_score > 0.7 else "STM"
-        
-        # Set decay rate (emotional memories decay slower)
-        decay_rate = self.LTM_DECAY if emotion_score > 0.6 else self.STM_DECAY
+        # TEMPORARY INFO (time, weather, "what are you doing now")
+        # These should be forgotten in 20 mins to 1 hour
+        if is_temporary:
+            initial_weight = 0.3  # Very weak
+            layer = "STM"
+            decay_rate = self.INSTANT_DECAY  # 24.0 per day = forgotten in 1 hour
+            emotion_score = 0.0  # No emotional value
+        # HIGH EMOTION (accident, trauma, love) → LTM forever
+        elif emotion_score >= 0.7:
+            initial_weight = 1.5 + (emotion_score * 0.5)  # 1.5 to 2.0
+            layer = "LTM"
+            decay_rate = self.LTM_DECAY  # 1% per day - lasts years
+        # MEDIUM EMOTION (birthday, friend) → STM for weeks
+        elif emotion_score >= 0.4:
+            initial_weight = 0.8 + (emotion_score * 0.4)  # 0.8 to 1.2
+            layer = "STM"
+            decay_rate = self.STM_DECAY * 0.7  # Slower than mundane
+        # LOW EMOTION (breakfast, coffee) → STM for days
+        else:
+            initial_weight = 0.5 + (emotion_score * 0.3)  # 0.5 to 0.7
+            layer = "STM"
+            decay_rate = self.STM_DECAY  # 25% per day - forgotten in days
         
         memory = UserMemory(
             profile_id=profile_id,

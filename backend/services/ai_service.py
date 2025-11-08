@@ -153,6 +153,10 @@ If no important facts, respond with "NONE".
                     key = key.strip().replace("-", "").strip()
                     value = value.strip()
                     
+                    # Skip temporary/contextual information (time, weather, current status)
+                    if self.memory_service.is_temporary_info(key + " " + value):
+                        continue  # Don't store temporary info as memories
+                    
                     # Check if memory already exists
                     existing = self.db.query(UserMemory).filter(
                         UserMemory.profile_id == self.profile.id,
