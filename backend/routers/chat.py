@@ -56,14 +56,8 @@ async def send_message(request: ChatRequest, db: Session = Depends(get_db)):
     ).order_by(ChatMessage.timestamp.desc()).limit(10).all()
     history.reverse()
     
-    # Get user memories
-    memories = db.query(UserMemory).filter(
-        UserMemory.profile_id == request.profile_id,
-        UserMemory.user_id == request.user_id
-    ).all()
-    
-    # Initialize AI service
-    ai_service = AIService(profile, memories)
+    # Initialize AI service with database session
+    ai_service = AIService(profile, db)
     
     # Decide if this is a "pratfall" moment
     is_pratfall = random.random() < profile.pratfall_probability
@@ -72,6 +66,7 @@ async def send_message(request: ChatRequest, db: Session = Depends(get_db)):
     response_text = await ai_service.generate_response(
         request.message,
         history,
+        request.user_id,
         is_pratfall=is_pratfall,
         scene_id=request.scene_id
     )
@@ -99,8 +94,8 @@ async def send_message(request: ChatRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(ai_message)
     
-    # Extract and save new memories
-    await ai_service.extract_memories(request.message, request.user_id, db)
+    # Extract and save new memories with emotional analysis
+    await ai_service.extract_memories(request.message, request.user_id)
     
     return ai_message
 

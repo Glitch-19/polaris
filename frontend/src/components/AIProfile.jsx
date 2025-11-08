@@ -9,7 +9,18 @@ export default function AIProfile({ profile, onStartChat, onBack }) {
   const [uploadingVoice, setUploadingVoice] = useState(false)
   const [recloning, setRecloning] = useState(false)
   const [sampleCount, setSampleCount] = useState(0)
-  const userId = 'user_' + Math.random().toString(36).substr(2, 9)
+  
+  // Get persistent userId from localStorage
+  const getUserId = () => {
+    let userId = localStorage.getItem('amnesia_user_id')
+    if (!userId) {
+      userId = 'user_' + Math.random().toString(36).substr(2, 9)
+      localStorage.setItem('amnesia_user_id', userId)
+    }
+    return userId
+  }
+  
+  const userId = getUserId()
 
   useEffect(() => {
     loadScenes()

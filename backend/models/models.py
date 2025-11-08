@@ -46,8 +46,16 @@ class UserMemory(Base):
     user_id = Column(String(100), nullable=False)
     memory_key = Column(String(200), nullable=False)  # e.g., "pet_name", "favorite_movie"
     memory_value = Column(Text, nullable=False)
-    confidence = Column(Float, default=1.0)  # Decays over time
+    
+    # Three-Layered Memory Architecture
+    emotion_score = Column(Float, default=0.5)  # 0.0-1.0: How emotionally charged (joy, sadness, excitement)
+    weight = Column(Float, default=1.0)  # Memory strength (reinforced through repetition/emotion)
+    layer = Column(String(20), default="STM")  # STM (Short-Term), LTM (Long-Term), FM (Faded Memory)
+    decay_rate = Column(Float, default=0.1)  # How quickly memory fades (lower = slower decay)
+    
+    confidence = Column(Float, default=1.0)  # Certainty of memory (decays over time)
     last_accessed = Column(DateTime, default=datetime.utcnow)
+    last_reinforced = Column(DateTime, default=datetime.utcnow)  # When memory was strengthened
     created_at = Column(DateTime, default=datetime.utcnow)
     
     profile = relationship("AIProfile", back_populates="memories")

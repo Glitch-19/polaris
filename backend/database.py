@@ -6,7 +6,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./amnesia.db")
+# Get absolute path to backend/amnesia.db
+# __file__ gives us the path to this file (database.py), which is in backend/
+db_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "amnesia.db")
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{db_file}")
 
 engine = create_engine(
     DATABASE_URL,

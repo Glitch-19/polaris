@@ -6,21 +6,23 @@ import random
 from datetime import datetime
 
 from backend.models.models import AIProfile, UserMemory, ChatMessage, Scene
+from backend.services.memory_service import MemoryService
 from sqlalchemy.orm import Session
 
 
 class AIService:
-    def __init__(self, profile: AIProfile, memories: List[UserMemory]):
+    def __init__(self, profile: AIProfile, db: Session):
         self.profile = profile
-        self.memories = memories
+        self.db = db
+        self.memory_service = MemoryService(db)
         self.llm = ChatGroq(
             model="llama-3.3-70b-versatile",
             temperature=0.9,
             groq_api_key=os.getenv("GROQ_API_KEY")
         )
     
-    def _build_system_prompt(self, is_pratfall: bool = False, scene: Optional[Scene] = None) -> str:
-        """Build the system prompt with personality and memory context"""
+    def _build_system_prompt(self, is_pratfall: bool = False, scene: Optional[Scene] = None, user_id: str = "") -> str:
+        """Build the system prompt with personality and three-layered memory context"""
         
         base_prompt = f"""You are {self.profile.name}, a real person having a genuine conversation.
 
@@ -43,20 +45,24 @@ PERSONALITY & BEHAVIOR:
 - Build a genuine relationship with the user as their friend and companion
 - Share personal stories and experiences as if they really happened to you
 
-What you remember about the user:
+THREE-LAYERED MEMORY SYSTEM:
 """
         
-        # Add memories
-        if self.memories:
-            for memory in self.memories:
-                base_prompt += f"\n- {memory.memory_key}: {memory.memory_value}"
+        # Get layered memories
+        if user_id:
+            memory_text = self.memory_service.format_memories_for_ai(self.profile.id, user_id)
+            base_prompt += memory_text
         else:
-            base_prompt += "\n(You don't know much about them yet - ask questions!)"
+            base_prompt += "(You don't know much about them yet - ask questions!)"
         
         # Pratfall moment instructions
-        if is_pratfall and self.memories:
-            random_memory = random.choice(self.memories)
-            base_prompt += f"""
+        if is_pratfall:
+            layered = self.memory_service.get_layered_memories(self.profile.id, user_id)
+            all_memories = layered['LTM'] + layered['STM'] + layered['FM']
+            
+            if all_memories:
+                random_memory = random.choice(all_memories)
+                base_prompt += f"""
 
 **SPECIAL INSTRUCTION FOR THIS RESPONSE:**
 You should "forget" or slightly confuse this detail: {random_memory.memory_key}
@@ -81,6 +87,7 @@ Stay in character for this scene while maintaining your core personality.
         base_prompt += """
 
 REMEMBER: You are a REAL PERSON. Respond naturally to ALL questions about daily life, food, sleep, activities, feelings, etc.
+Use faded memories to show uncertainty: "I think you mentioned... wasn't it something about...? My memory's fuzzy on that one."
 """
         
         return base_prompt
@@ -89,6 +96,7 @@ REMEMBER: You are a REAL PERSON. Respond naturally to ALL questions about daily 
         self,
         user_message: str,
         history: List[ChatMessage],
+        user_id: str,
         is_pratfall: bool = False,
         scene_id: Optional[int] = None
     ) -> str:
@@ -99,7 +107,7 @@ REMEMBER: You are a REAL PERSON. Respond naturally to ALL questions about daily 
         
         # Add system prompt
         scene = None  # TODO: fetch scene if scene_id provided
-        system_prompt = self._build_system_prompt(is_pratfall, scene)
+        system_prompt = self._build_system_prompt(is_pratfall, scene, user_id)
         messages.append(SystemMessage(content=system_prompt))
         
         # Add conversation history
@@ -116,8 +124,8 @@ REMEMBER: You are a REAL PERSON. Respond naturally to ALL questions about daily 
         response = await self.llm.ainvoke(messages)
         return response.content
     
-    async def extract_memories(self, user_message: str, user_id: str, db: Session):
-        """Extract and save important facts from user message"""
+    async def extract_memories(self, user_message: str, user_id: str):
+        """Extract and save important facts from user message with emotional analysis"""
         
         extraction_prompt = f"""Analyze this message and extract any personal facts worth remembering.
 
@@ -137,7 +145,7 @@ If no important facts, respond with "NONE".
         response = await self.llm.ainvoke([HumanMessage(content=extraction_prompt)])
         
         if response.content.strip().upper() != "NONE":
-            # Parse and save memories
+            # Parse and save memories with emotion scoring
             lines = response.content.strip().split("\n")
             for line in lines:
                 if ":" in line:
@@ -146,23 +154,25 @@ If no important facts, respond with "NONE".
                     value = value.strip()
                     
                     # Check if memory already exists
-                    existing = db.query(UserMemory).filter(
+                    existing = self.db.query(UserMemory).filter(
                         UserMemory.profile_id == self.profile.id,
                         UserMemory.user_id == user_id,
                         UserMemory.memory_key == key
                     ).first()
                     
                     if existing:
-                        existing.memory_value = value
-                        existing.last_accessed = datetime.utcnow()
-                        existing.confidence = 1.0
+                        # Reinforce existing memory
+                        emotion_boost = self.memory_service.calculate_emotion_score(user_message) * 0.5
+                        self.memory_service.reinforce_memory(existing, emotion_boost)
+                        existing.memory_value = value  # Update value
                     else:
-                        new_memory = UserMemory(
+                        # Create new memory with emotional analysis
+                        self.memory_service.create_memory(
                             profile_id=self.profile.id,
                             user_id=user_id,
                             memory_key=key,
-                            memory_value=value
+                            memory_value=value,
+                            text_context=user_message
                         )
-                        db.add(new_memory)
             
-            db.commit()
+            self.db.commit()

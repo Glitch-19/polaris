@@ -15,11 +15,9 @@ Base.metadata.create_all(bind=engine)
 def seed_profiles():
     db = next(get_db())
     
-    # Check if profiles already exist
-    existing = db.query(AIProfile).first()
-    if existing:
-        print("✓ Profiles already exist, skipping seed")
-        return
+    # Clear existing profiles
+    db.query(AIProfile).delete()
+    db.commit()
     
     profiles = [
         {

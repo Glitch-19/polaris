@@ -6,7 +6,18 @@ import ProfileList from './components/ProfileList'
 function App() {
   const [selectedProfile, setSelectedProfile] = useState(null)
   const [view, setView] = useState('list') // 'list', 'profile', 'chat'
-  const userId = 'user_' + Math.random().toString(36).substr(2, 9)
+  
+  // Generate or retrieve persistent userId from localStorage
+  const getUserId = () => {
+    let userId = localStorage.getItem('amnesia_user_id')
+    if (!userId) {
+      userId = 'user_' + Math.random().toString(36).substr(2, 9)
+      localStorage.setItem('amnesia_user_id', userId)
+    }
+    return userId
+  }
+  
+  const userId = getUserId()
 
   return (
     <div className="container">
